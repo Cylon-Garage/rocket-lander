@@ -1,0 +1,10 @@
+{
+  "python.defaultInterpreterPath": "venv/bin/python",
+  "editor.formatOnSave": true,
+  "[markdown]": {
+    "editor.formatOnSave": false
+  },
+  "python.analysis.extraPaths": [
+    "/home/jason/.vscode/extensions/roipoussiere.cadquery-0.1.3/stubs"
+  ],
+}
