@@ -10,7 +10,7 @@ I = 1 / 2 * m * (L1 ** 2)
 g = 9.80665
 n_states = 6
 n_inputs = 2
-n_horizon = 10
+n_horizon = 50
 n_steps = 100
 sampling_time = 0.2
 Q, R, Qf = 1, 0.1, 1
@@ -45,86 +45,67 @@ def dynamics_dt(x, y, theta, dx, dy, dtheta, u):
     return x, y, theta, dx, dy, dtheta
 
 
-def stage_cost(x, y, theta, dx, dy, dtheta, z_ref, u, u_prev, k):
-    du = [u[0] - u_prev[0], u[1] - u_prev[1]]
-    cost = R * du[0] ** 2 + du[1] ** 2
-    if k > 0:
-        cost += Q*(x-z_ref[0])**2
-        cost += Q*(y-z_ref[1])**2
-        cost += Q*(theta-z_ref[2])**2
-        cost += Q*(dx-z_ref[3])**2
-        cost += Q*(dy-z_ref[4])**2
-        cost += Q*(dtheta-z_ref[5])**2
-    return cost
-
-
-def terminal_cost(x, y, theta, dx, dy, dtheta, z_ref):
-    cost = Qf*(x-z_ref[0])**2
-    cost += Qf*(y-z_ref[1])**2
-    cost += Qf*(theta-z_ref[2])**2
-    cost += Qf*(dx-z_ref[3])**2
-    cost += Qf*(dy-z_ref[4])**2
-    cost += Qf*(dtheta-z_ref[5])**2
-    return cost
-
-
 u = cs.SX.sym('u', n_inputs * n_horizon)
 z_0 = cs.SX.sym('z_0', n_states)
-z_ref = cs.SX.sym('z_ref', n_states * n_horizon)
 x, y, theta, dx, dy, dtheta = z_0[0], z_0[1], z_0[2], z_0[3], z_0[4], z_0[5]
 
 cost = 0
 u_prev = [0, 0]
+constraints = []
 for k in range(0, n_inputs * n_horizon, n_inputs):
     u_k = u[k:(k+n_inputs)]
-    z_ref_k = z_ref[k:(k+n_states)]
-    cost += stage_cost(x, y, theta, dx, dy, dtheta, z_ref_k, u_k, u_prev, k)
+    cost += u_k[0] + u_k[1]
+    constraints.append(cs.fmin(y - 10, 0))
     x, y, theta, dx, dy, dtheta = dynamics_dt(x, y, theta, dx, dy, dtheta, u_k)
-    u_prev = u_k
-
-cost += terminal_cost(x, y, theta, dx, dy, dtheta, z_ref[-n_states:])
+constraints.append(cs.fmin(x, 0))
+constraints.append(cs.fmax(x, 0))
+constraints.append(cs.fmin(dx, 0))
+constraints.append(cs.fmax(dx, 0))
+constraints.append(cs.fmin(y - 10, 0))
+constraints.append(cs.fmax(y - 10, 0))
+constraints.append(cs.fmin(dy, 0))
+constraints.append(cs.fmax(dy, 0))
+constraints.append(cs.fmin(theta, 0))
+constraints.append(cs.fmax(theta, 0))
+constraints.append(cs.fmin(dtheta, 0))
+constraints.append(cs.fmax(dtheta, 0))
+constraints = cs.vertcat(*constraints)
 
 umin = [0.0] * (n_inputs*n_horizon)
 umax = [8.0] * (n_inputs*n_horizon)
 bounds = og.constraints.Rectangle(umin, umax)
 
-problem = og.builder.Problem(u, cs.vcat(
-    [z_0, z_ref]), cost).with_constraints(bounds)
+problem = og.builder.Problem(u, z_0, cost) \
+    .with_penalty_constraints(constraints).with_constraints(bounds)
 build_config = og.config.BuildConfiguration()\
     .with_build_directory("my_optimizers")\
     .with_build_mode("debug")\
     .with_tcp_interface_config()
 meta = og.config.OptimizerMeta()\
-    .with_optimizer_name("navigation")
+    .with_optimizer_name("planning")
 solver_config = og.config.SolverConfiguration()\
     .with_tolerance(1e-5)
 builder = og.builder.OpEnOptimizerBuilder(problem,
                                           meta,
                                           build_config,
                                           solver_config)
-builder.build()
+# builder.build()
 
 
-def get_reference_trajectory(state):
-    reference_distance = np.linalg.norm(
-        optimal_trajectory[:, :2] - state[:2], axis=1)
-    nearest_index = np.argmin(reference_distance)
-    idx = np.arange(nearest_index, nearest_index + n_horizon)
-    idx[idx > (optimal_steps - 1)] = optimal_steps - 1
-    return optimal_trajectory[idx, :]
-
-
-mng = og.tcp.OptimizerTcpManager('my_optimizers/navigation')
+mng = og.tcp.OptimizerTcpManager('my_optimizers/planning')
 mng.start()
+# init_state = [-30, 60, 0, 0, 0, 0]
+# state = init_state
+# solution = mng.call(state, initial_guess=None)
+# u = np.array(solution['solution']).reshape((-1, 2))
+# print(u)
 
 init_state = [-30, 60, 0, 0, 0, 0]
 state = init_state
 states = [state]
 inputs = []
 for k in range(n_steps):
-    state_ref = get_reference_trajectory(state).ravel().tolist()
-    param = state + state_ref
-    solution = mng.call(param, initial_guess=None)
+    solution = mng.call(state, initial_guess=None)
     u = np.array(solution['solution']).reshape((-1, 2))[0, :]
     state = list(dynamics_dt(*state, u))
     states.append(state)
