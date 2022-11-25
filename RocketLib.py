@@ -1,116 +1,67 @@
 import numpy as np
-import casadi as cs
-from do_mpc.model import Model
-from do_mpc.controller import MPC
-from do_mpc.estimator import StateFeedback
-from do_mpc.simulator import Simulator
+from scipy.integrate import solve_ivp
+from scipy.signal import cont2discrete
 import matplotlib.pylab as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 from typing import Tuple
+np.set_printoptions(precision=3)
 
-m = 1
+ROCKET_MASS = 1
 L1 = 10
 L2 = 5
-I = 1 / 2 * m * (L1 ** 2)
-g = 9.80665
+I = 1 / 2 * ROCKET_MASS * (L1 ** 2)
 
 
-def get_model(tracking=False) -> Model:
-    model_type = 'continuous'
-    model = Model(model_type)
-
-    # init state variables
-    pos = model.set_variable('_x', 'pos', (2, 1))
-    theta = model.set_variable('_x', 'theta')
-    dpos = model.set_variable('_x', 'dpos', (2, 1))
-    dtheta = model.set_variable('_x', 'dtheta')
-
-    # init input variables
-    u = model.set_variable('_u', 'thrust', (2, 1))
-
-    # init algebraic state variables
-    ddpos = model.set_variable('_z', 'ddpos', (2, 1))
-    ddtheta = model.set_variable('_z', 'ddtheta')
-
-    # add tvp if tracking
-    if tracking:
-        optimal_pos = model.set_variable(
-            var_type='_tvp', var_name='optimal_pos', shape=(2, 1))
-        optimal_theta = model.set_variable(
-            var_type='_tvp', var_name='optimal_theta')
-        optimal_dpos = model.set_variable(
-            var_type='_tvp', var_name='optimal_dpos', shape=(2, 1))
-        optimal_dtheta = model.set_variable(
-            var_type='_tvp', var_name='optimal_dtheta')
-
-    # set right-hand-side
-    model.set_rhs('pos', dpos)
-    model.set_rhs('theta', dtheta)
-    model.set_rhs('dpos', ddpos)
-    model.set_rhs('dtheta', ddtheta)
-
-    # set system dynamics
-    t_fwd = u[0] + u[0]
+def state_function(t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+    t_fwd = u[0] + u[1]
     t_twist = u[1] - u[0]
-    motion_equations = cs.vertcat(
-        L2 * t_twist - I * ddtheta,
-        -t_fwd * cs.sin(theta) - m * ddpos[0],
-        -m * g + t_fwd * cs.cos(theta) - m * ddpos[1],
-    )
-    model.set_alg('motion_equations', motion_equations)
-    model.setup()
-    return model
+    sin = np.sin(x[2])
+    cos = np.cos(x[2])
+
+    dx = np.zeros_like(x)
+    dx[:3] = x[3:]
+    dx[3] = -t_fwd * sin / ROCKET_MASS
+    dx[4] = -u[2] + t_fwd * cos / ROCKET_MASS
+    dx[5] = L2 / I * t_twist
+    return dx
 
 
-def get_mpc_optimizer(model: Model, timestep: float, n_horizon: int) -> MPC:
-    mpc = MPC(model)
-    setup_mpc = {
-        'n_horizon': n_horizon,
-        'n_robust': 0,
-        'open_loop': 0,
-        't_step': timestep,
-        'state_discretization': 'collocation',
-        'collocation_type': 'radau',
-        'collocation_deg': 3,
-        'collocation_ni': 1,
-        'store_full_solution': True,
-        'nlpsol_opts': {'ipopt.linear_solver': 'mumps'}
-    }
-    mpc.set_param(**setup_mpc)
-    return mpc
+def get_linearized_state(x: np.ndarray, u: np.ndarray, sample_time: float, epsilon: float):
+    x = np.array(x).ravel()
+    u = np.array(u).ravel()
 
+    nx, nu = x.shape[0], u.shape[0]
+    x_eps, u_eps = np.eye(nx) * epsilon, np.eye(nu) * epsilon
 
-def set_mpc_bounds(mpc: MPC) -> None:
-    mpc.bounds['lower', '_u', 'thrust'] = (0, 0)
-    mpc.bounds['upper', '_u', 'thrust'] = (8, 8)
-    mpc.bounds['lower', '_x', 'pos'][1] = 10
+    x_plus = (np.tile(x, (nx, 1)) + x_eps).T
+    x_minus = (np.tile(x, (nx, 1)) - x_eps).T
+    u_plus = (np.tile(u, (nu, 1)) + u_eps).T
+    u_minus = (np.tile(u, (nu, 1)) - u_eps).T
+    states_plus, states_minus = np.zeros((nx, nx)), np.zeros((nx, nx))
+    inputs_plus, inputs_minus = np.zeros((nx, nu)), np.zeros((nx, nu))
+    for i in range(nx):
 
-    mpc.terminal_bounds['lower', '_x', 'pos'] = (0, 10)
-    mpc.terminal_bounds['upper', '_x', 'pos'] = (0, 10)
+        states_plus[:, i] = solve_ivp(state_function,
+                                      t_span=[0, sample_time],
+                                      y0=x_plus[:, i],
+                                      args=(u,)).y[:, -1]
+        states_minus[:, i] = solve_ivp(state_function,
+                                       t_span=[0, sample_time],
+                                       y0=x_minus[:, i],
+                                       args=(u,)).y[:, -1]
+    for i in range(nu):
 
-    mpc.terminal_bounds['lower', '_x', 'theta'] = 0
-    mpc.terminal_bounds['upper', '_x', 'theta'] = 0
-
-    mpc.terminal_bounds['lower', '_x', 'dpos'] = (0, 0)
-    mpc.terminal_bounds['upper', '_x', 'dpos'] = (0, 0)
-
-    mpc.terminal_bounds['lower', '_x', 'dtheta'] = 0
-    mpc.terminal_bounds['upper', '_x', 'dtheta'] = 0
-
-
-def get_simulator(model: Model) -> Tuple[StateFeedback, Simulator]:
-    estimator = StateFeedback(model)
-    simulator = Simulator(model)
-    params_simulator = {
-        # Note: cvode doesn't support DAE systems.
-        'integration_tool': 'idas',
-        'abstol': 1e-10,
-        'reltol': 1e-10,
-        't_step': 0.2
-    }
-
-    simulator.set_param(**params_simulator)
-    return simulator, estimator
+        inputs_plus[:, i] = solve_ivp(state_function,
+                                      t_span=[0, sample_time],
+                                      y0=x,
+                                      args=(u_plus[:, i],)).y[:, -1]
+        inputs_minus[:, i] = solve_ivp(state_function,
+                                       t_span=[0, sample_time],
+                                       y0=x,
+                                       args=(u_minus[:, i],)).y[:, -1]
+    A = (states_plus - states_minus) / (2 * epsilon)
+    B = (inputs_plus - inputs_minus) / (2 * epsilon)
+    return A, B
 
 
 def get_thruster_plot_lines(center: np.ndarray, angle: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -187,3 +138,24 @@ def create_animation(fname: str, state: np.ndarray, n_steps: float, show=False) 
         plt.show()
     anim.save(fname, writer=PillowWriter(fps=25))
     return fig, ax
+
+
+if __name__ == '__main__':
+    sample_time = 0.2
+    x0 = np.array([-30, 60, 0, 0, 0, 0])
+    u = np.array([3, 1])
+
+    states = []
+    for i in range(100):
+        solution = solve_ivp(state_function,
+                             t_span=[0, sample_time],
+                             y0=x0,
+                             args=(u,))
+        x0 = solution.y.T[-1, :]
+        states.append(x0)
+
+    states = np.array(states)
+    matlab = np.loadtxt('states.csv', delimiter=',').reshape((-1, 6))
+    plt.plot(matlab[:, 0], matlab[:, 1], 'b')
+    plt.plot(states[:, 0], states[:, 1], 'r')
+    plt.show()

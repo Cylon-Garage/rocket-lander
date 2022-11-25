@@ -7,7 +7,6 @@ import matplotlib.pylab as plt
 timestep = 0.2
 n_horizon = 50
 n_steps = 100
-path_n_horizon = int(n_steps * .5)
 start_position = (-30, 60)
 state_fname = 'optimal_state.npy'
 input_fname = 'optimal_input.npy'
