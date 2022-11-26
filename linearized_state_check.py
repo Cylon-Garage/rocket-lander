@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.integrate import solve_ivp
-from RocketLib import state_function, get_linearized_state
+from RocketLib import matlab_example_state_function, get_linearized_state
 import matplotlib.pylab as plt
 
 
@@ -16,10 +16,11 @@ x = x0
 x_exact = x0
 states = []
 states_exact = []
-A, B = get_linearized_state(x, u, sample_time, epsilon)
+A, B = get_linearized_state(
+    x, u, sample_time, epsilon, matlab_example_state_function)
 for i in range(n):
     x = A @ x + B @ u
-    x_exact = solve_ivp(state_function,
+    x_exact = solve_ivp(matlab_example_state_function,
                         t_span=[0, sample_time],
                         y0=x_exact,
                         args=(u,)).y.T[-1, :]
