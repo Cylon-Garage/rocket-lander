@@ -153,12 +153,12 @@ def plot_trajectory(states: np.ndarray, inputs: np.ndarray, time: np.ndarray) ->
     return fig, ax
 
 
-def create_animation_matlab_example(fname: str, state: np.ndarray, show=False) -> None:
+def create_animation_matlab_example(fname: str, states: np.ndarray, show=False) -> None:
     fig, ax = plt.subplots()
-    circle = plt.Circle(state[0, :2].squeeze(), radius=L1, fc='y')
+    circle = plt.Circle(states[0, :2].squeeze(), radius=L1, fc='y')
     ax.add_patch(circle)
     r, l = get_thruster_plot_lines(
-        state[0, :2].squeeze(), state[0, 2].squeeze())
+        states[0, :2].squeeze(), states[0, 2].squeeze())
     bar1 = ax.plot(r[:, 0], r[:, 1], 'r', linewidth=3)
     bar2 = ax.plot(l[:, 0], l[:, 1], 'b', linewidth=3)
     ax.axhline(0, color='black')
@@ -168,13 +168,13 @@ def create_animation_matlab_example(fname: str, state: np.ndarray, show=False) -
     fig.tight_layout()
 
     def animate(i):
-        circle.center = state[i, :2].squeeze()
+        circle.center = states[i, :2].squeeze()
         r, l = get_thruster_plot_lines(
-            state[i, :2].squeeze(), state[i, 2].squeeze())
+            states[i, :2].squeeze(), states[i, 2].squeeze())
         bar1[0].set_data(r.T)
         bar2[0].set_data(l.T)
 
-    anim = FuncAnimation(fig, animate, frames=state.shape[0], repeat=False)
+    anim = FuncAnimation(fig, animate, frames=states.shape[0], repeat=False)
     if show:
         plt.show()
     anim.save(fname, writer=PillowWriter(fps=25))
@@ -190,7 +190,7 @@ def interpolate_data(data: np.array, n: int) -> np.array:
     return more_data
 
 
-def create_animation(fname: str, state: np.ndarray, inputs: np.ndarray, show: bool = False) -> None:
+def create_animation(fname: str, states: np.ndarray, inputs: np.ndarray, show: bool = False) -> None:
     flame_width = 0.1
 
     def get_plot_points(x, u):
@@ -202,12 +202,12 @@ def create_animation(fname: str, state: np.ndarray, inputs: np.ndarray, show: bo
 
     fig, ax = plt.subplots()
     rocket_anchor, flame_anchor, flame_rotation_point = get_plot_points(
-        state[0, :], inputs[0, :])
+        states[0, :], inputs[0, :])
     rocket = mpatches.Rectangle(
         rocket_anchor,
         ROCKET_WIDTH,
         L1 * 2,
-        angle=np.degrees(state[0, 2]),
+        angle=np.degrees(states[0, 2]),
         color=ROCKET_COLOR)
     flame = mpatches.Rectangle(
         flame_anchor,
@@ -226,16 +226,59 @@ def create_animation(fname: str, state: np.ndarray, inputs: np.ndarray, show: bo
 
     def animate(i):
         rocket_anchor, flame_anchor, flame_rotation_point = get_plot_points(
-            state[i, :], inputs[i, :])
+            states[i, :], inputs[i, :])
         rocket.set_xy(rocket_anchor)
-        rocket.set_angle(np.degrees(state[i, 2]))
+        rocket.set_angle(np.degrees(states[i, 2]))
 
         flame.rotation_point = flame_rotation_point
         flame.set_xy(flame_anchor)
-        flame.set_angle(np.degrees(inputs[i, 1] + state[i, 2]) + 180)
+        flame.set_angle(np.degrees(inputs[i, 1] + states[i, 2]) + 180)
         flame.set_height(inputs[i, 0]/12 * FLAME_SCALE)
 
-    anim = FuncAnimation(fig, animate, frames=state.shape[0], repeat=False)
+    anim = FuncAnimation(fig, animate, frames=states.shape[0], repeat=False)
+    if show:
+        plt.show()
+    anim.save(fname, writer=PillowWriter(fps=25))
+    return fig, ax
+
+
+def create_tracking_animation(fname: str, states: np.ndarray, optimal_states: np.ndarray, show=False) -> None:
+    alpha = 0.5
+    fig, ax = plt.subplots()
+    circle = plt.Circle(states[0, :2].squeeze(), radius=L1, fc='y')
+    optimal_circle = plt.Circle(
+        optimal_states[0, :2].squeeze(), radius=L1, fc='y', alpha=alpha)
+    ax.add_patch(circle)
+    ax.add_patch(optimal_circle)
+    r, l = get_thruster_plot_lines(
+        states[0, :2].squeeze(), states[0, 2].squeeze())
+    optimal_r, optimal_l = get_thruster_plot_lines(
+        states[0, :2].squeeze(), optimal_states[0, 2].squeeze())
+    bar1 = ax.plot(r[:, 0], r[:, 1], 'r', linewidth=3)
+    bar2 = ax.plot(l[:, 0], l[:, 1], 'b', linewidth=3)
+    optimal_bar1 = ax.plot(
+        optimal_r[:, 0], optimal_r[:, 1], 'r', linewidth=3, alpha=alpha)
+    optimal_bar2 = ax.plot(
+        optimal_l[:, 0], optimal_l[:, 1], 'b', linewidth=3, alpha=alpha)
+    ax.axhline(0, color='black')
+    ax.set_xlim(-100, 100)
+    ax.set_ylim(-10, 100)
+    ax.set_aspect(1)
+    fig.tight_layout()
+
+    def animate(i):
+        circle.center = states[i, :2].squeeze()
+        optimal_circle.center = optimal_states[i, :2].squeeze()
+        r, l = get_thruster_plot_lines(
+            states[i, :2].squeeze(), states[i, 2].squeeze())
+        bar1[0].set_data(r.T)
+        bar2[0].set_data(l.T)
+        optimal_r, optimal_l = get_thruster_plot_lines(
+            optimal_states[i, :2].squeeze(), optimal_states[i, 2].squeeze())
+        optimal_bar1[0].set_data(optimal_r.T)
+        optimal_bar2[0].set_data(optimal_l.T)
+
+    anim = FuncAnimation(fig, animate, frames=states.shape[0], repeat=False)
     if show:
         plt.show()
     anim.save(fname, writer=PillowWriter(fps=25))

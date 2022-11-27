@@ -115,9 +115,9 @@ def get_optimal_path(rerun=False):
     state_fname = 'optimal_state.npy'
     input_fname = 'optimal_input.npy'
 
-    if (os.path.isfile(state_fname) and os.path.isfile(input_fname) and not rerun):
-        state = np.load(state_fname)
-        input = np.load(input_fname)
+    if not rerun:
+        states = np.load(state_fname)
+        inputs = np.load(input_fname)
 
     else:
         timestep = 0.2
@@ -152,18 +152,18 @@ def get_optimal_path(rerun=False):
             u0 = mpc.make_step(x0)
             y_next = simulator.make_step(u0)
             x0 = estimator.make_step(y_next)
-        state = mpc.data['_x']
-        input = mpc.data['_u']
+        states = mpc.data['_x']
+        inputs = mpc.data['_u']
 
         with open(state_fname, 'wb') as f:
-            np.save(f, state)
+            np.save(f, states)
         with open(input_fname, 'wb') as f:
-            np.save(f, input)
-    return state, input
+            np.save(f, inputs)
+    return states, inputs
 
 
 rerun = False
-rerun = True
+# rerun = True
 path_state, path_input = get_optimal_path(rerun)
 path_time = np.arange(path_state.shape[0]) * 0.2
 
@@ -171,7 +171,7 @@ path_time = np.arange(path_state.shape[0]) * 0.2
 rl.plot_trajectory_matlab_example(path_state, path_input, path_time)
 plt.show()
 
-n = 200
+n = 300
 path_state = rl.interpolate_data(path_state, n)
 path_input = rl.interpolate_data(path_input, n)
 rl.create_animation_matlab_example('planner.gif', path_state)

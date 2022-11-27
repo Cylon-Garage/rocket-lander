@@ -64,36 +64,64 @@ def get_reference_state(position: np.ndarray) -> np.ndarray:
     return optimal_states[idx, :]
 
 
-x = x_0
-u = u_0
-inputs = [u]
-states = [x]
-for t in range(n_steps):
-    x_ref = get_reference_state(x[:2])
-    A, B = rl.get_linearized_state(
-        x, u, timestep, epsilon, rl.matlab_example_state_function)
+def run_tracker(rerun=False):
+    state_fname = 'tracker_state.npy'
+    input_fname = 'tracker_input.npy'
 
-    u_optimal = mpc(x, u, A, B, x_ref)
-    if u_optimal is not None:
-        u = u_optimal[:, 0]
+    if not rerun:
+        states = np.load(state_fname)
+        inputs = np.load(input_fname)
     else:
-        print('$$$$', t)
-    x = solve_ivp(rl.matlab_example_state_function, t_span=[
-                  0, timestep], y0=x, args=(u,)).y[:, -1]
-    states.append(x)
-    inputs.append(u)
-states = np.array(states)
-inputs = np.array(inputs)
-time = np.arange(states.shape[0]) * timestep
+        x = x_0
+        u = u_0
+        inputs = [u]
+        states = [x]
+        for t in range(n_steps - 1):
+            x_ref = get_reference_state(x[:2])
+            A, B = rl.get_linearized_state(
+                x, u, timestep, epsilon, rl.matlab_example_state_function)
+
+            u_optimal = mpc(x, u, A, B, x_ref)
+            if u_optimal is not None:
+                u = u_optimal[:, 0]
+            else:
+                print('$$$$', t)
+            x = solve_ivp(rl.matlab_example_state_function, t_span=[
+                0, timestep], y0=x, args=(u,)).y[:, -1]
+            states.append(x)
+            inputs.append(u)
+        states = np.array(states)
+        inputs = np.array(inputs)
+
+        with open(state_fname, 'wb') as f:
+            np.save(f, states)
+        with open(input_fname, 'wb') as f:
+            np.save(f, inputs)
+    return states, inputs
 
 
-fig, ax = rl.plot_trajectory_matlab_example(states, inputs, time)
-time = np.arange(optimal_states.shape[0]) * timestep
-linestyle = '--'
-ax[0].plot(optimal_states[:, 0], optimal_states[:, 1], linestyle=linestyle)
-ax[1].plot(time, np.degrees(optimal_states[:, 2]), linestyle=linestyle)
-ax[2].plot(time, optimal_inputs[:, 0], linestyle=linestyle)
-ax[2].plot(time, optimal_inputs[:, 1], linestyle=linestyle)
-plt.show()
-print(states)
+rerun = False
+# rerun = True
+states, inputs = run_tracker(rerun)
+
+
+#         time = np.arange(states.shape[0]) * timestep
+
+
+# fig, ax = rl.plot_trajectory_matlab_example(states, inputs, time)
+# time = np.arange(optimal_states.shape[0]) * timestep
+# linestyle = '--'
+# ax[0].plot(optimal_states[:, 0], optimal_states[:, 1], linestyle=linestyle)
+# ax[1].plot(time, np.degrees(optimal_states[:, 2]), linestyle=linestyle)
+# ax[2].plot(time, optimal_inputs[:, 0], linestyle=linestyle)
+# ax[2].plot(time, optimal_inputs[:, 1], linestyle=linestyle)
+# plt.show()
+# print(states)
+
+n = 300
+optimal_states = rl.interpolate_data(optimal_states, n)
+optimal_inputs = rl.interpolate_data(optimal_inputs, n)
+states = rl.interpolate_data(states, n)
+inputs = rl.interpolate_data(inputs, n)
 rl.create_animation_matlab_example('tracker.gif', states)
+rl.create_tracking_animation('tracker_vs_planner.gif', states, optimal_states)
