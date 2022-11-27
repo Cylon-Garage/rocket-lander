@@ -108,14 +108,13 @@ def get_thruster_plot_lines(center: np.ndarray, angle: np.ndarray) -> Tuple[np.n
     return r, l
 
 
-def plot_trajectory_matlab_example(state: np.ndarray, input: np.ndarray, time: np.ndarray) -> None:
+def plot_trajectory_matlab_example(states: np.ndarray, inputs: np.ndarray, time: np.ndarray) -> None:
     linestyle = '-'
     fig, ax = plt.subplots(3, 1)
-    ax[0].plot(state[:, 0], state[:, 1], linestyle=linestyle)
-    # ax[0].plot(time, state[:, 1], linestyle=linestyle)
-    ax[1].plot(time, np.degrees(state[:, 2]), linestyle=linestyle)
-    ax[2].plot(time, input[:, 0], linestyle=linestyle)
-    ax[2].plot(time, input[:, 1], linestyle=linestyle)
+    ax[0].plot(states[:, 0], states[:, 1], linestyle=linestyle)
+    ax[1].plot(time, np.degrees(states[:, 2]), linestyle=linestyle)
+    ax[2].plot(time, inputs[:, 0], linestyle=linestyle)
+    ax[2].plot(time, inputs[:, 1], linestyle=linestyle)
 
     ax[0].set_ylabel('pos')
     ax[1].set_ylabel('angle')
@@ -131,7 +130,30 @@ def plot_trajectory_matlab_example(state: np.ndarray, input: np.ndarray, time: n
     return fig, ax
 
 
-def create_animation_matlab_example(fname: str, state: np.ndarray, n_steps: float, show=False) -> None:
+def plot_trajectory(states: np.ndarray, inputs: np.ndarray, time: np.ndarray) -> None:
+    linestyle = '-'
+    fig, ax = plt.subplots(3, 1)
+    ax[0].plot(states[:, 0], states[:, 1], linestyle=linestyle)
+    # ax[0].plot(time, state[:, 1], linestyle=linestyle)
+    ax[1].plot(time, np.degrees(states[:, 2]), linestyle=linestyle)
+    ax[2].plot(time, inputs[:, 0], linestyle=linestyle)
+    ax[2].plot(time, np.degrees(inputs[:, 1]), linestyle=linestyle)
+
+    ax[0].set_ylabel('pos')
+    ax[1].set_ylabel('angle')
+    ax[2].set_ylabel('thrust')
+    ax[0].xaxis.set_ticklabels([])
+    ax[1].xaxis.set_ticklabels([])
+    ax[2].set_xlabel('time [s]')
+    fig.align_ylabels()
+    fig.tight_layout()
+    ax[0].grid()
+    ax[1].grid()
+    ax[2].grid()
+    return fig, ax
+
+
+def create_animation_matlab_example(fname: str, state: np.ndarray, show=False) -> None:
     fig, ax = plt.subplots()
     circle = plt.Circle(state[0, :2].squeeze(), radius=L1, fc='y')
     ax.add_patch(circle)
@@ -140,8 +162,8 @@ def create_animation_matlab_example(fname: str, state: np.ndarray, n_steps: floa
     bar1 = ax.plot(r[:, 0], r[:, 1], 'r', linewidth=3)
     bar2 = ax.plot(l[:, 0], l[:, 1], 'b', linewidth=3)
     ax.axhline(0, color='black')
-    ax.set_xlim(-40, 40)
-    ax.set_ylim(0, 80)
+    ax.set_xlim(-100, 100)
+    ax.set_ylim(-10, 100)
     ax.set_aspect(1)
     fig.tight_layout()
 
@@ -152,7 +174,7 @@ def create_animation_matlab_example(fname: str, state: np.ndarray, n_steps: floa
         bar1[0].set_data(r.T)
         bar2[0].set_data(l.T)
 
-    anim = FuncAnimation(fig, animate, frames=n_steps, repeat=False)
+    anim = FuncAnimation(fig, animate, frames=state.shape[0], repeat=False)
     if show:
         plt.show()
     anim.save(fname, writer=PillowWriter(fps=25))
@@ -199,7 +221,7 @@ def create_animation(fname: str, state: np.ndarray, inputs: np.ndarray, show: bo
     ax.add_patch(flame)
     ax.axhline(0, color='black')
     ax.set_xlim(-120, 120)
-    ax.set_ylim(-5, 100)
+    ax.set_ylim(-5, 200)
     ax.set_aspect(1)
 
     def animate(i):
