@@ -105,23 +105,23 @@ rerun = False
 states, inputs = run_tracker(rerun)
 
 
-#         time = np.arange(states.shape[0]) * timestep
+time = np.arange(states.shape[0]) * timestep
 
 
-# fig, ax = rl.plot_trajectory_matlab_example(states, inputs, time)
-# time = np.arange(optimal_states.shape[0]) * timestep
-# linestyle = '--'
-# ax[0].plot(optimal_states[:, 0], optimal_states[:, 1], linestyle=linestyle)
-# ax[1].plot(time, np.degrees(optimal_states[:, 2]), linestyle=linestyle)
-# ax[2].plot(time, optimal_inputs[:, 0], linestyle=linestyle)
-# ax[2].plot(time, optimal_inputs[:, 1], linestyle=linestyle)
-# plt.show()
+fig, ax = rl.plot_trajectory_matlab_example(states, inputs, time)
+time = np.arange(optimal_states.shape[0]) * timestep
+linestyle = '--'
+ax[0].plot(optimal_states[:, 0], optimal_states[:, 1], linestyle=linestyle)
+ax[1].plot(time, np.degrees(optimal_states[:, 2]), linestyle=linestyle)
+ax[2].plot(time, optimal_inputs[:, 0], linestyle=linestyle)
+ax[2].plot(time, optimal_inputs[:, 1], linestyle=linestyle)
+plt.show()
 # print(states)
 
-n = 300
-optimal_states = rl.interpolate_data(optimal_states, n)
-optimal_inputs = rl.interpolate_data(optimal_inputs, n)
-states = rl.interpolate_data(states, n)
-inputs = rl.interpolate_data(inputs, n)
-rl.create_animation_matlab_example('tracker.gif', states)
-rl.create_tracking_animation('tracker_vs_planner.gif', states, optimal_states)
+# n = 300
+# optimal_states = rl.interpolate_data(optimal_states, n)
+# optimal_inputs = rl.interpolate_data(optimal_inputs, n)
+# states = rl.interpolate_data(states, n)
+# inputs = rl.interpolate_data(inputs, n)
+# rl.create_animation_matlab_example('tracker.gif', states)
+# rl.create_tracking_animation('tracker_vs_planner.gif', states, optimal_states)

@@ -1,6 +1,8 @@
+import RocketLib as rl
 import pygame
 import numpy as np
 import sys
+np.set_printoptions(precision=2)
 
 SCALE = 1 / 3
 SCREEN_SIZE = (800, 800)
@@ -10,6 +12,23 @@ FLAME_WIDTH, FLAME_HEIGHT = 54, 137
 
 dragon_size = np.array([DRAGON_WIDTH, DRAGON_HEIGHT]) * SCALE
 flame_size = np.array((FLAME_WIDTH / 2, FLAME_HEIGHT)) * SCALE
+flame_center1 = np.array([DRAGON_WIDTH / 4, DRAGON_HEIGHT / 2.1]) * SCALE
+flame_center2 = np.array([DRAGON_WIDTH * 3 / 4, DRAGON_HEIGHT / 2.1]) * SCALE
+dragon_cm = np.array([DRAGON_WIDTH / 2, DRAGON_HEIGHT / 2]) * SCALE
+
+n = 900
+tracker_states = np.load('tracker_state.npy')
+tracker_inputs = np.load('tracker_input.npy')
+tracker_states = rl.interpolate_data(tracker_states, n)
+tracker_inputs = rl.interpolate_data(tracker_inputs, n)
+tracker_scale = dragon_size[0] / 10
+
+tracker_states[:, :2] *= tracker_scale
+tracker_states[:, 0] += SCREEN_SIZE[0] * 3 / 4
+tracker_states[:, 1] *= -1
+tracker_states[:, 1] += SCREEN_SIZE[1]
+
+
 screen = pygame.display.set_mode(SCREEN_SIZE)
 screen.fill((255, 255, 255))
 
@@ -29,15 +48,12 @@ flame1.orig_image = flame1.image
 flame2.orig_image = flame2.image
 
 
-flame_center1 = np.array([DRAGON_WIDTH / 4, DRAGON_HEIGHT / 2.1]) * SCALE
-flame_center2 = np.array([DRAGON_WIDTH * 3 / 4, DRAGON_HEIGHT / 2.1]) * SCALE
-
-dragon_cm = np.array([DRAGON_WIDTH / 2, DRAGON_HEIGHT / 2]) * SCALE
-
-
-def update_flames():
-    flame1_size = flame_size * 1
-    flame2_size = flame_size * 0.5
+def update_flames(i):
+    flame_min, flame_max = flame_size * 0.1, flame_size * 1
+    flame1_size = tracker_inputs[i, 0] / 8 * \
+        (flame_max - flame_min) + flame_min
+    flame2_size = tracker_inputs[i, 1] / 8 * \
+        (flame_max - flame_min) + flame_min
     flame1_corner = (flame_center1[0] - flame1_size[0] / 2, flame_center1[1])
     flame2_corner = (flame_center2[0] - flame2_size[0] / 2, flame_center2[1])
     flame1.image = pygame.transform.scale(flame1.orig_image, flame1_size)
@@ -48,15 +64,16 @@ def update_flames():
 def display_loop(i):
 
     screen.fill((255, 255, 255))
-    angle = 20
-    angle = 1 * i
-    # angle = 20
-    offset = np.array([100, 200])
-    offset = np.array([0, 0])
+    angle = np.degrees(tracker_states[i, 2])
+    offset = tracker_states[i, :2]
+    # angle = 0
+    # offset = [100, 100]
 
     # update flames
-    flame1_corner, flame2_corner = update_flames()
+    flame1_corner, flame2_corner = update_flames(i)
 
+    if i > 1:
+        pygame.draw.lines(screen, (0, 0, 0), False, tracker_states[:i, :2])
     # create new dragon image and merge flames onto it
     dragon.image = pygame.transform.rotate(dragon.orig_image, 0)
     dragon.image.blit(
@@ -69,22 +86,26 @@ def display_loop(i):
     dragon.rect = dragon.image.get_rect()
 
     # translate merged dragon
-    dragon.rect.center = dragon_cm + offset
+    dragon.rect.center = offset
+    # dragon.rect.center = dragon_cm + offset
 
     # draw everything onto screen
     screen.blit(dragon.image, dragon.rect)
 
-    pygame.image.save(screen, 'test.png')
-    pygame.quit()
-    sys.exit()
+    # pygame.draw.lines(screen, (0, 0, 0), False, tracker_states[:, :2])
+
+    # pygame.image.save(screen, 'test.png')
+    # pygame.quit()
+    # sys.exit()
 
 
 count = -1
 while True:
     count += 1
-    display_loop(count)
+    if count < tracker_states.shape[0]:
+        display_loop(count)
     pygame.display.update()
-    timer.tick(60)
+    timer.tick(40)
     for event in pygame.event.get():
         if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_q):
             pygame.quit()
