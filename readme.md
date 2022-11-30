@@ -51,3 +51,5 @@ $mg$
 $L_{thruster}$
 
 $\theta$
+
+
