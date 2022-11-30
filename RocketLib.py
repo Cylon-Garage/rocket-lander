@@ -1,51 +1,56 @@
+import sys
 import numpy as np
+import casadi as cs
 from scipy.integrate import solve_ivp
+from do_mpc.model import Model
+import pygame as pg
 import matplotlib.pylab as plt
-import matplotlib.patches as mpatches
-from matplotlib.animation import FuncAnimation, PillowWriter
-from typing import Tuple
-import matplotlib as mpl
+from Parameters import *
+from typing import Tuple, Callable, Dict, Optional
 np.set_printoptions(precision=3)
 
-ROCKET_MASS = 1
-ROCKET_WIDTH = 4
-L1 = 10
-L2 = 5
-I = 1 / 2 * ROCKET_MASS * (L1 ** 2)
-ROCKET_COLOR = (140/255, 151/255, 168/255)
-FLAME_COLOR = (230/255, 133/255, 44/255)
-FLAME_SCALE = 10
 
-
-def matlab_example_state_function(t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+def dragon_state_function(t: float, x: np.ndarray, u: np.ndarray, casadi=False) -> np.ndarray:
+    '''
+    t: required variable for solve_ivp but not used in equations
+    u: [thrust left, thrust right, gravity]
+    '''
     t_fwd = u[0] + u[1]
     t_twist = u[1] - u[0]
-    sin = np.sin(x[2])
-    cos = np.cos(x[2])
+    sin = np.sin(x[2]) if not casadi else cs.sin(x[2])
+    cos = np.cos(x[2]) if not casadi else cs.cos(x[2])
 
-    dx = np.zeros_like(x)
-    dx[:3] = x[3:]
-    dx[3] = -t_fwd * sin / ROCKET_MASS
-    dx[4] = -u[2] + t_fwd * cos / ROCKET_MASS
-    dx[5] = L2 / I * t_twist
-    return dx
+    if not casadi:
+        sin = np.sin(x[2])
+        cos = np.cos(x[2])
 
-
-def rocket_state_function(t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
-    angle = x[2] + u[1]
-    sin1 = np.sin(angle)
-    sin2 = np.sin(u[1])
-    cos = np.cos(angle)
-
-    dx = np.zeros_like(x)
-    dx[:3] = x[3:]
-    dx[3] = -u[0] * sin1 / ROCKET_MASS
-    dx[4] = -u[2] + u[0] * cos / ROCKET_MASS
-    dx[5] = -L1 * u[0] * sin2 / I
-    return dx
+        dx = np.zeros_like(x)
+        dx[:3] = x[3:]
+        dx[3] = -t_fwd * sin / DRAGON_MASS
+        dx[4] = -u[2] + t_fwd * cos / DRAGON_MASS
+        dx[5] = DRAGON_THRUST_ARM / DRAGON_I * t_twist
+        return dx
 
 
-def get_linearized_state(x: np.ndarray, u: np.ndarray, sample_time: float, epsilon: float, state_function):
+def set_dragon_motion_equations(model: Model) -> None:
+    u1, u2 = model.u['thrust'][0], model.u['thrust'][1]
+    theta = model.x['theta']
+    dd_x, dd_y, dd_theta = model.z['ddpos'][0], model.z['ddpos'][1], model.z['ddtheta']
+
+    t_fwd = u1 + u2
+    t_twist = u2 - u1
+    sin = cs.sin(theta)
+    cos = cs.cos(theta)
+    motion_equations = cs.vertcat(
+        -t_fwd * sin - DRAGON_MASS * dd_x,
+        -DRAGON_MASS * G + t_fwd * cos - DRAGON_MASS * dd_y,
+        DRAGON_THRUST_ARM * t_twist - DRAGON_I * dd_theta,
+    )
+    model.set_alg('motion_equations', motion_equations)
+    return motion_equations
+
+
+def get_linearized_state(x: np.ndarray, u: np.ndarray, sample_time: float, epsilon: float, state_function: Callable) -> Tuple[np.ndarray, np.ndarray]:
     x = np.array(x).ravel()
     u = np.array(u).ravel()
 
@@ -83,104 +88,6 @@ def get_linearized_state(x: np.ndarray, u: np.ndarray, sample_time: float, epsil
     return A, B
 
 
-def get_thruster_plot_lines(center: np.ndarray, angle: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-    cos, sin = np.cos(angle), np.sin(angle)
-    R = np.array([
-        [cos, -sin],
-        [sin, cos],
-    ])
-
-    r = np.zeros((2, 2))
-    r[0, 0] = L2 - 1
-    r[1, 0] = L2 + 1
-    l = np.array(r)
-    l[:, 0] *= -1
-
-    r[0, :] = R @ r[0, :]
-    r[1, :] = R @ r[1, :]
-    l[0, :] = R @ l[0, :]
-    l[1, :] = R @ l[1, :]
-
-    r[:, 0] += center[0]
-    r[:, 1] += center[1]
-    l[:, 0] += center[0]
-    l[:, 1] += center[1]
-    return r, l
-
-
-def plot_trajectory_matlab_example(states: np.ndarray, inputs: np.ndarray, time: np.ndarray) -> None:
-    linestyle = '-'
-    fig, ax = plt.subplots(3, 1)
-    ax[0].plot(states[:, 0], states[:, 1], linestyle=linestyle)
-    ax[1].plot(time, np.degrees(states[:, 2]), linestyle=linestyle)
-    ax[2].plot(time, inputs[:, 0], linestyle=linestyle)
-    ax[2].plot(time, inputs[:, 1], linestyle=linestyle)
-
-    ax[0].set_ylabel('pos')
-    ax[1].set_ylabel('angle')
-    ax[2].set_ylabel('thrust')
-    ax[0].xaxis.set_ticklabels([])
-    ax[1].xaxis.set_ticklabels([])
-    ax[2].set_xlabel('time [s]')
-    fig.align_ylabels()
-    fig.tight_layout()
-    ax[0].grid()
-    ax[1].grid()
-    ax[2].grid()
-    return fig, ax
-
-
-def plot_trajectory(states: np.ndarray, inputs: np.ndarray, time: np.ndarray) -> None:
-    linestyle = '-'
-    fig, ax = plt.subplots(3, 1)
-    ax[0].plot(states[:, 0], states[:, 1], linestyle=linestyle)
-    # ax[0].plot(time, state[:, 1], linestyle=linestyle)
-    ax[1].plot(time, np.degrees(states[:, 2]), linestyle=linestyle)
-    ax[2].plot(time, inputs[:, 0], linestyle=linestyle)
-    ax[2].plot(time, np.degrees(inputs[:, 1]), linestyle=linestyle)
-
-    ax[0].set_ylabel('pos')
-    ax[1].set_ylabel('angle')
-    ax[2].set_ylabel('thrust')
-    ax[0].xaxis.set_ticklabels([])
-    ax[1].xaxis.set_ticklabels([])
-    ax[2].set_xlabel('time [s]')
-    fig.align_ylabels()
-    fig.tight_layout()
-    ax[0].grid()
-    ax[1].grid()
-    ax[2].grid()
-    return fig, ax
-
-
-def create_animation_matlab_example(fname: str, states: np.ndarray, show=False) -> None:
-    fig, ax = plt.subplots()
-    circle = plt.Circle(states[0, :2].squeeze(), radius=L1, fc='y')
-    ax.add_patch(circle)
-    r, l = get_thruster_plot_lines(
-        states[0, :2].squeeze(), states[0, 2].squeeze())
-    bar1 = ax.plot(r[:, 0], r[:, 1], 'r', linewidth=3)
-    bar2 = ax.plot(l[:, 0], l[:, 1], 'b', linewidth=3)
-    ax.axhline(0, color='black')
-    ax.set_xlim(-100, 100)
-    ax.set_ylim(-10, 100)
-    ax.set_aspect(1)
-    fig.tight_layout()
-
-    def animate(i):
-        circle.center = states[i, :2].squeeze()
-        r, l = get_thruster_plot_lines(
-            states[i, :2].squeeze(), states[i, 2].squeeze())
-        bar1[0].set_data(r.T)
-        bar2[0].set_data(l.T)
-
-    anim = FuncAnimation(fig, animate, frames=states.shape[0], repeat=False)
-    if show:
-        plt.show()
-    anim.save(fname, writer=PillowWriter(fps=25))
-    return fig, ax
-
-
 def interpolate_data(data: np.array, n: int) -> np.array:
     x = np.linspace(0, data.shape[0] - 1, n)
     xp = np.arange(data.shape[0])
@@ -190,117 +97,175 @@ def interpolate_data(data: np.array, n: int) -> np.array:
     return more_data
 
 
-def create_animation(fname: str, states: np.ndarray, inputs: np.ndarray, show: bool = False) -> None:
-    flame_width = 0.1
+def plot(states: np.ndarray, inputs: np.ndarray, time: np.ndarray, styles: Dict = {}, ax: Optional[plt.Axes] = None, label=''):
+    linestyle = styles.setdefault('linestyle', '-')
+    c1 = styles.setdefault('c1', 'b')
+    c2 = styles.setdefault('c2', 'b')
+    c3 = styles.setdefault('c3', 'b')
 
-    def get_plot_points(x, u):
-        xc, yc = x[0], x[1]
-        rocket_anchor = (xc - ROCKET_WIDTH / 2, yc - L1)
-        flame_anchor = (xc - flame_width / 2, yc - L1)
-        flame_rotation_point = (xc, yc - L1)
-        return rocket_anchor, flame_anchor, flame_rotation_point
+    if ax is None:
+        fig, ax = plt.subplots(3, 1, figsize=(8, 6))
+        ax[0].grid()
+        ax[1].grid()
+        ax[2].grid()
+    else:
+        fig = plt.gcf()
+    ax[0].plot(time, np.degrees(states[:, 2]), color=c1,
+               linestyle=linestyle, label=label)
+    ax[1].plot(time, inputs[:, 0], color=c2, linestyle=linestyle)
+    ax[2].plot(time, inputs[:, 1], color=c3, linestyle=linestyle)
 
-    fig, ax = plt.subplots()
-    rocket_anchor, flame_anchor, flame_rotation_point = get_plot_points(
-        states[0, :], inputs[0, :])
-    rocket = mpatches.Rectangle(
-        rocket_anchor,
-        ROCKET_WIDTH,
-        L1 * 2,
-        angle=np.degrees(states[0, 2]),
-        color=ROCKET_COLOR)
-    flame = mpatches.Rectangle(
-        flame_anchor,
-        flame_width,
-        inputs[0, 0]/12 * FLAME_SCALE,
-        angle=np.degrees(inputs[0, 1]) + 180,
-        rotation_point=flame_rotation_point,
-        color=FLAME_COLOR)
-
-    ax.add_patch(rocket)
-    ax.add_patch(flame)
-    ax.axhline(0, color='black')
-    ax.set_xlim(-120, 120)
-    ax.set_ylim(-5, 200)
-    ax.set_aspect(1)
-
-    def animate(i):
-        rocket_anchor, flame_anchor, flame_rotation_point = get_plot_points(
-            states[i, :], inputs[i, :])
-        rocket.set_xy(rocket_anchor)
-        rocket.set_angle(np.degrees(states[i, 2]))
-
-        flame.rotation_point = flame_rotation_point
-        flame.set_xy(flame_anchor)
-        flame.set_angle(np.degrees(inputs[i, 1] + states[i, 2]) + 180)
-        flame.set_height(inputs[i, 0]/12 * FLAME_SCALE)
-
-    anim = FuncAnimation(fig, animate, frames=states.shape[0], repeat=False)
-    if show:
-        plt.show()
-    anim.save(fname, writer=PillowWriter(fps=25))
-    return fig, ax
-
-
-def create_tracking_animation(fname: str, states: np.ndarray, optimal_states: np.ndarray, show=False) -> None:
-    alpha = 0.5
-    fig, ax = plt.subplots()
-    circle = plt.Circle(states[0, :2].squeeze(), radius=L1, fc='y')
-    optimal_circle = plt.Circle(
-        optimal_states[0, :2].squeeze(), radius=L1, fc='y', alpha=alpha)
-    ax.add_patch(circle)
-    ax.add_patch(optimal_circle)
-    r, l = get_thruster_plot_lines(
-        states[0, :2].squeeze(), states[0, 2].squeeze())
-    optimal_r, optimal_l = get_thruster_plot_lines(
-        states[0, :2].squeeze(), optimal_states[0, 2].squeeze())
-    bar1 = ax.plot(r[:, 0], r[:, 1], 'r', linewidth=3)
-    bar2 = ax.plot(l[:, 0], l[:, 1], 'b', linewidth=3)
-    optimal_bar1 = ax.plot(
-        optimal_r[:, 0], optimal_r[:, 1], 'r', linewidth=3, alpha=alpha)
-    optimal_bar2 = ax.plot(
-        optimal_l[:, 0], optimal_l[:, 1], 'b', linewidth=3, alpha=alpha)
-    ax.axhline(0, color='black')
-    ax.set_xlim(-100, 100)
-    ax.set_ylim(-10, 100)
-    ax.set_aspect(1)
+    ax[0].set_ylabel('Angle [deg]')
+    ax[1].set_ylabel('Thrust 1 [N]')
+    ax[2].set_ylabel('Thrust 2 [N]')
+    ax[0].xaxis.set_ticklabels([])
+    ax[1].xaxis.set_ticklabels([])
+    ax[2].set_xlabel('time [s]')
+    fig.align_ylabels()
     fig.tight_layout()
-
-    def animate(i):
-        circle.center = states[i, :2].squeeze()
-        optimal_circle.center = optimal_states[i, :2].squeeze()
-        r, l = get_thruster_plot_lines(
-            states[i, :2].squeeze(), states[i, 2].squeeze())
-        bar1[0].set_data(r.T)
-        bar2[0].set_data(l.T)
-        optimal_r, optimal_l = get_thruster_plot_lines(
-            optimal_states[i, :2].squeeze(), optimal_states[i, 2].squeeze())
-        optimal_bar1[0].set_data(optimal_r.T)
-        optimal_bar2[0].set_data(optimal_l.T)
-
-    anim = FuncAnimation(fig, animate, frames=states.shape[0], repeat=False)
-    if show:
-        plt.show()
-    anim.save(fname, writer=PillowWriter(fps=25))
-    return fig, ax
+    return plt.gcf(), ax
 
 
-if __name__ == '__main__':
-    sample_time = 0.2
-    x0 = np.array([-30, 60, 0, 0, 0, 0])
-    u = np.array([3, 1])
+def animate(states: np.ndarray, inputs: np.ndarray, optimal_states: Optional[np.ndarray] = None, save_frames: bool = False):
+    black = (0, 0, 0)
+    white = (255, 255, 255)
+    red = (255, 0, 0)
+    green = (0, 128, 0)
+    blue = (0, 0, 255)
+    pad_color = (182, 154, 63)
+    water_color = (4, 48, 193)
 
-    states = []
-    for i in range(100):
-        solution = solve_ivp(matlab_example_state_function,
-                             t_span=[0, sample_time],
-                             y0=x0,
-                             args=(u,))
-        x0 = solution.y.T[-1, :]
-        states.append(x0)
+    background = sprite = pg.sprite.Sprite()
+    background.image = pg.image.load('images/sky.webp')
+    background.image = pg.transform.scale(sprite.image, ANIMATION_SIZE)
 
-    states = np.array(states)
-    matlab = np.loadtxt('states.csv', delimiter=',').reshape((-1, 6))
-    plt.plot(matlab[:, 0], matlab[:, 1], 'b')
-    plt.plot(states[:, 0], states[:, 1], 'r')
-    plt.show()
+    def get_sprite(fname: str, size: Tuple[int, int]) -> pg.sprite.Sprite:
+        sprite = pg.sprite.Sprite()
+        sprite.image = pg.image.load(fname)
+        sprite.image = pg.transform.scale(sprite.image, size)
+        sprite.orig_image = sprite.image
+        return sprite
+
+    dragon_size = np.array(
+        [DRAGON_IMG_WIDTH, DRAGON_IMG_HEIGHT]) * ANIMATION_SCALE
+    flame_size = np.array(
+        (FLAME_IMG_WIDTH / 2, FLAME_IMG_HEIGHT)) * ANIMATION_SCALE
+    flame_center1 = np.array(
+        [DRAGON_IMG_WIDTH / 4, DRAGON_IMG_HEIGHT / 2.1]) * ANIMATION_SCALE
+    flame_center2 = np.array(
+        [DRAGON_IMG_WIDTH * 3 / 4, DRAGON_IMG_HEIGHT / 2.1]) * ANIMATION_SCALE
+
+    def transform(points, x_shift):
+        points[:, 0] += x_shift
+        points[:, 1] *= -1
+        points[:, 1] += ANIMATION_SIZE[1]
+        return points
+
+    state_scale = dragon_size[0] / DRAGON_WIDTH * \
+        (DRAGON_PIXEL_CG_HEIGHT/DRAGON_PIXEL_CG_HEIGHT_OFFSET)
+    states[:, :2] *= state_scale
+    state_min_x, state_max_x = states[:, 0].min(), states[:, 0].max()
+    x_shift = -state_min_x + \
+        (ANIMATION_SIZE[0] - (state_max_x - state_min_x)) / 2
+    states[:, :2] = transform(states[:, :2], x_shift)
+
+    pad_width, pad_height = 10 * state_scale, 15
+    pad_corner = np.array([[-pad_width/2, pad_height]])
+    pad_corner = transform(pad_corner, x_shift)
+    states[:, 1] -= pad_height
+
+    if optimal_states is not None:
+        optimal_states[:, :2] *= state_scale
+        optimal_states[:, :2] = transform(optimal_states[:, :2], x_shift)
+        optimal_states[:, 1] -= pad_height
+
+    screen = pg.display.set_mode(ANIMATION_SIZE)
+    screen.fill(white)
+    timer = pg.time.Clock()
+
+    dragon = get_sprite('images/dragon.png', dragon_size)
+    optimal_dragon = get_sprite('images/dragon_optimal.png', dragon_size)
+    flame1 = get_sprite('images/flame.png', flame_size)
+    flame2 = get_sprite('images/flame.png', flame_size)
+
+    def update_flames(i):
+        flame_min, flame_max = flame_size * 0.1, flame_size * 1.2
+        flame1_size = inputs[i, 0] / MAX_THRUST * \
+            (flame_max - flame_min) + flame_min
+        flame2_size = inputs[i, 1] / MAX_THRUST * \
+            (flame_max - flame_min) + flame_min
+        flame1_corner = (flame_center1[0] -
+                         flame1_size[0] / 2, flame_center1[1])
+        flame2_corner = (flame_center2[0] -
+                         flame2_size[0] / 2, flame_center2[1])
+        flame1.image = pg.transform.scale(flame1.orig_image, flame1_size)
+        flame2.image = pg.transform.scale(flame2.orig_image, flame2_size)
+        return flame1_corner, flame2_corner
+
+    def display_loop(i):
+        screen.fill(white)
+        screen.blit(background.image, background.image.get_rect())
+        if i > 1:
+            pg.draw.lines(screen, green, False, states[:i, :2])
+            if optimal_states is not None:
+                pg.draw.lines(screen, blue, False, optimal_states[:i, :2])
+
+        # create new dragon image and merge flames onto it
+        dragon.image = pg.transform.rotate(dragon.orig_image, 0)
+        if i < states.shape[0]:
+            # update flames
+            flame1_corner, flame2_corner = update_flames(i)
+            angle = np.degrees(states[i, 2])
+            offset = states[i, :2]
+            dragon.image.blit(
+                flame1.image, flame1.image.get_rect(topleft=flame1_corner))
+            dragon.image.blit(
+                flame2.image, flame2.image.get_rect(topleft=flame2_corner))
+            optimal_dragon.image = pg.transform.rotate(
+                optimal_dragon.orig_image, np.degrees(optimal_states[i, 2]))
+            optimal_dragon.rect = optimal_dragon.image.get_rect()
+            optimal_dragon.rect.center = optimal_states[i, :2]
+            screen.blit(optimal_dragon.image, optimal_dragon.rect)
+        else:
+            angle = np.degrees(states[-1, 2])
+            offset = states[-1, :2]
+
+        # rotate merged dragon
+        dragon.image = pg.transform.rotate(dragon.image, angle)
+        dragon.rect = dragon.image.get_rect()
+
+        # translate merged dragon
+        dragon.rect.center = offset
+
+        # draw everything onto screen
+        screen.blit(dragon.image, dragon.rect)
+        r = 5
+
+        pg.draw.rect(
+            screen,
+            water_color,
+            pg.Rect(0, ANIMATION_SIZE[1] - 10, ANIMATION_SIZE[0], 10)
+        )
+        pg.draw.rect(
+            screen,
+            pad_color,
+            pg.Rect(*pad_corner.ravel(), pad_width, pad_height),
+            border_top_left_radius=r,
+            border_top_right_radius=r
+        )
+        if save_frames:
+            pg.image.save(screen, 'animation_frames/%04u.png' % i)
+            # quit()
+        # print(i)
+
+    count = -1
+    while True:
+        count += 1
+        if count <= states.shape[0]:
+            display_loop(count)
+        pg.display.update()
+        timer.tick(40)
+        for event in pg.event.get():
+            if event.type == pg.QUIT or (event.type == pg.KEYDOWN and event.key == pg.K_q):
+                pg.quit()
+                sys.exit()

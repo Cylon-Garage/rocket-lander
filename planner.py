@@ -1,23 +1,15 @@
 import numpy as np
-import os
 import casadi
 import RocketLib as rl
 from do_mpc.model import Model
 from do_mpc.controller import MPC
 from do_mpc.estimator import StateFeedback
 from do_mpc.simulator import Simulator
+import RocketLib as rl
+from Parameters import *
 import matplotlib.pylab as plt
-from matplotlib.animation import FuncAnimation, PillowWriter
-from typing import Tuple
+from typing import Tuple, List
 np.set_printoptions(precision=2)
-
-ROCKET_MASS = 1
-L1 = 10
-L2 = 5
-I = 1 / 2 * ROCKET_MASS * (L1 ** 2)
-G = 9.80665
-
-MAX_THRUST = 8
 
 
 def get_model() -> Model:
@@ -44,14 +36,7 @@ def get_model() -> Model:
     model.set_rhs('dtheta', ddtheta)
 
     # set system dynamics
-    t_fwd = u[0] + u[0]
-    t_twist = u[1] - u[0]
-    motion_equations = casadi.vertcat(
-        L2 * t_twist - I * ddtheta,
-        -t_fwd * casadi.sin(theta) - ROCKET_MASS * ddpos[0],
-        -ROCKET_MASS * G + t_fwd * casadi.cos(theta) - ROCKET_MASS * ddpos[1],
-    )
-    model.set_alg('motion_equations', motion_equations)
+    rl.set_dragon_motion_equations(model)
     model.setup()
     return model
 
@@ -69,10 +54,6 @@ def get_mpc_optimizer(model: Model, timestep: float, n_horizon: int) -> MPC:
         'collocation_ni': 1,
         'store_full_solution': True,
         'nlpsol_opts': {'ipopt.linear_solver': 'mumps'}
-        # 'nlpsol_opts': {'ipopt.linear_solver': 'mumps',
-        #                 'ipopt.print_level': 1,
-        #                 'ipopt.sb': 'yes',
-        #                 'print_time': 1}
     }
     mpc.set_param(**setup_mpc)
     return mpc
@@ -81,10 +62,10 @@ def get_mpc_optimizer(model: Model, timestep: float, n_horizon: int) -> MPC:
 def set_mpc_bounds(mpc: MPC) -> None:
     mpc.bounds['lower', '_u', 'thrust'] = (0, 0)
     mpc.bounds['upper', '_u', 'thrust'] = (MAX_THRUST, MAX_THRUST)
-    mpc.bounds['lower', '_x', 'pos'][1] = L1
+    mpc.bounds['lower', '_x', 'pos'][1] = DRAGON_CG_HEIGHT
 
-    mpc.terminal_bounds['lower', '_x', 'pos'] = (0, L1)
-    mpc.terminal_bounds['upper', '_x', 'pos'] = (0, L1)
+    mpc.terminal_bounds['lower', '_x', 'pos'] = (0, DRAGON_CG_HEIGHT)
+    mpc.terminal_bounds['upper', '_x', 'pos'] = (0, DRAGON_CG_HEIGHT)
 
     mpc.terminal_bounds['lower', '_x', 'theta'] = 0
     mpc.terminal_bounds['upper', '_x', 'theta'] = 0
@@ -100,7 +81,6 @@ def get_simulator(model: Model) -> Tuple[StateFeedback, Simulator]:
     estimator = StateFeedback(model)
     simulator = Simulator(model)
     params_simulator = {
-        # Note: cvode doesn't support DAE systems.
         'integration_tool': 'idas',
         'abstol': 1e-10,
         'reltol': 1e-10,
@@ -111,21 +91,19 @@ def get_simulator(model: Model) -> Tuple[StateFeedback, Simulator]:
     return simulator, estimator
 
 
-def get_optimal_path(rerun=False):
-    state_fname = 'optimal_state.npy'
-    input_fname = 'optimal_input.npy'
+def get_optimal_path(initial_state: List, rerun=False) -> Tuple[np.ndarray, np.ndarray]:
+    state_fname = 'saved_states/optimal_state.npy'
+    input_fname = 'saved_states/optimal_input.npy'
 
     if not rerun:
         states = np.load(state_fname)
         inputs = np.load(input_fname)
 
     else:
-        timestep = 0.2
-        n_horizon = 50
         n_steps = 150
 
         model = get_model()
-        mpc = get_mpc_optimizer(model, timestep, n_horizon)
+        mpc = get_mpc_optimizer(model, TIMESTEP, PLANNER_N_HORIZON)
 
         running_cost = model.u['thrust'][0] + model.u['thrust'][1]
         terminal_cost = casadi.DM(0)
@@ -138,10 +116,10 @@ def get_optimal_path(rerun=False):
 
         simulator, estimator = get_simulator(model)
         simulator.setup()
-        simulator.x0['pos'] = [-30.0, 60.0]
-        simulator.x0['theta'] = np.pi/4
-        simulator.x0['dpos'] = [-10.0, 10.0]
-        simulator.x0['dtheta'] = [0.0]
+        simulator.x0['pos'] = initial_state[:2]
+        simulator.x0['theta'] = initial_state[2]
+        simulator.x0['dpos'] = initial_state[3:5]
+        simulator.x0['dtheta'] = initial_state[5]
         x0 = simulator.x0.cat.full()
         estimator.x0 = x0
         mpc.x0 = x0
@@ -164,14 +142,11 @@ def get_optimal_path(rerun=False):
 
 rerun = False
 # rerun = True
-path_state, path_input = get_optimal_path(rerun)
-path_time = np.arange(path_state.shape[0]) * 0.2
-
-
-rl.plot_trajectory_matlab_example(path_state, path_input, path_time)
+states, inputs = get_optimal_path(X0, rerun)
+time = np.arange(states.shape[0]) * TIMESTEP
+fig, ax = rl.plot(states, inputs, time)
 plt.show()
-
-n = 300
-path_state = rl.interpolate_data(path_state, n)
-path_input = rl.interpolate_data(path_input, n)
-rl.create_animation_matlab_example('planner.gif', path_state)
+n = 600
+states = rl.interpolate_data(states, n)
+inputs = rl.interpolate_data(inputs, n)
+rl.animate(states, inputs)
