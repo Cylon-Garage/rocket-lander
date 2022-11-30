@@ -255,9 +255,6 @@ def animate(states: np.ndarray, inputs: np.ndarray, optimal_states: Optional[np.
         )
         if save_frames:
             pg.image.save(screen, 'animation_frames/%04u.png' % i)
-            # quit()
-        # print(i)
-
     count = -1
     while True:
         count += 1

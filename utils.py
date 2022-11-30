@@ -1,7 +1,7 @@
+import os
 import numpy as np
 import matplotlib.image as mpimg
-import glob
-from PIL import Image
+from subprocess import Popen
 
 
 def make_transparent_dragon():
@@ -11,13 +11,9 @@ def make_transparent_dragon():
     mpimg.imsave('images/dragon_optimal.png', img)
 
 
-def create_gif(path):
-    img_paths = sorted(glob.glob('%s/*.png' % path))
-
-    imgs = [Image.open(i) for i in img_paths]
-
-    imgs[0].save('test.gif',
-                 save_all=True,
-                 append_images=imgs[1:],
-                 duration=100,
-                 loop=0)
+def create_animation_video(path, output):
+    if os.path.isfile(output):
+        os.remove(output)
+    with Popen(
+            "ffmpeg -framerate 30 -pattern_type glob -i '%s/*.png' -c:v libx264 -pix_fmt yuv420p %s" % (path, output), shell=True) as p:
+        pass

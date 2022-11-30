@@ -1,4 +1,3 @@
-import matplotlib
 import RocketLib as rl
 import numpy as np
 import cvxpy as cp
@@ -21,6 +20,8 @@ u_0 = np.array([0, 0, G], dtype=float)
 
 Q = np.diag([1, 1, 1, 1, 1, 1])
 P = np.diag([1, 1, 1, 1, 1, 1])
+Q = np.diag([1, 1, 50, 1, 1, 10])
+P = np.diag([1, 1, 50, 1, 1, 10])
 R = np.diag([0.1, 0.1, 0])
 
 
@@ -123,7 +124,7 @@ ax[1].set_ylim([-1, MAX_THRUST + 1])
 ax[2].set_ylim([-1, MAX_THRUST + 1])
 
 # plt.show()
-# fig.savefig('tracker_vs_optimal.png', dpi=100)
+fig.savefig('tracker_vs_optimal.png', dpi=100)
 
 
 n = 600
@@ -131,5 +132,4 @@ states = rl.interpolate_data(states, n)
 inputs = rl.interpolate_data(inputs, n)
 optimal_states = rl.interpolate_data(optimal_states, n)
 # rl.animate(states, inputs, optimal_states, save_frames=True)
-
-utils.create_gif('animation_frames')
+utils.create_animation_video('animation_frames', 'animation.mp4')
