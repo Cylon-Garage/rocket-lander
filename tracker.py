@@ -103,16 +103,22 @@ def run_tracker(rerun=False):
 
 rerun = False
 # rerun = True
+styles = {
+    'linestyle': '-',
+    'c1': 'g',
+    'c2': 'g',
+    'c3': 'g',
+}
 states, inputs = run_tracker(rerun)
 time = np.arange(states.shape[0]) * TIMESTEP
 
 
-fig, ax = rl.plot(states, inputs, time, label='tracker')
+fig, ax = rl.plot(states, inputs, time, label='tracker', styles=styles)
 styles = {
     'linestyle': '--',
-    'c1': 'g',
-    'c2': 'g',
-    'c3': 'g',
+    'c1': 'b',
+    'c2': 'b',
+    'c3': 'b',
 }
 optimal_time = np.arange(optimal_states.shape[0]) * TIMESTEP
 fig, ax = rl.plot(optimal_states, optimal_inputs,
@@ -124,7 +130,7 @@ ax[1].set_ylim([-1, MAX_THRUST + 1])
 ax[2].set_ylim([-1, MAX_THRUST + 1])
 
 # plt.show()
-fig.savefig('tracker_vs_optimal.png', dpi=100)
+fig.savefig('tracker_vs_optimal.png', dpi=80)
 
 
 n = 600
@@ -132,4 +138,4 @@ states = rl.interpolate_data(states, n)
 inputs = rl.interpolate_data(inputs, n)
 optimal_states = rl.interpolate_data(optimal_states, n)
 # rl.animate(states, inputs, optimal_states, save_frames=True)
-utils.create_animation_video('animation_frames', 'animation.mp4')
+# utils.create_animation_video('animation_frames', 'animation.mp4')

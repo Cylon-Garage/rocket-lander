@@ -10,26 +10,25 @@ from typing import Tuple, Callable, Dict, Optional
 np.set_printoptions(precision=3)
 
 
-def dragon_state_function(t: float, x: np.ndarray, u: np.ndarray, casadi=False) -> np.ndarray:
+def dragon_state_function(t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
     '''
     t: required variable for solve_ivp but not used in equations
     u: [thrust left, thrust right, gravity]
     '''
     t_fwd = u[0] + u[1]
     t_twist = u[1] - u[0]
-    sin = np.sin(x[2]) if not casadi else cs.sin(x[2])
-    cos = np.cos(x[2]) if not casadi else cs.cos(x[2])
+    sin = np.sin(x[2])
+    cos = np.cos(x[2])
 
-    if not casadi:
-        sin = np.sin(x[2])
-        cos = np.cos(x[2])
+    sin = np.sin(x[2])
+    cos = np.cos(x[2])
 
-        dx = np.zeros_like(x)
-        dx[:3] = x[3:]
-        dx[3] = -t_fwd * sin / DRAGON_MASS
-        dx[4] = -u[2] + t_fwd * cos / DRAGON_MASS
-        dx[5] = DRAGON_THRUST_ARM / DRAGON_I * t_twist
-        return dx
+    dx = np.zeros_like(x)
+    dx[:3] = x[3:]
+    dx[3] = -t_fwd * sin / DRAGON_MASS
+    dx[4] = -u[2] + t_fwd * cos / DRAGON_MASS
+    dx[5] = DRAGON_THRUST_ARM / DRAGON_I * t_twist
+    return dx
 
 
 def set_dragon_motion_equations(model: Model) -> None:
