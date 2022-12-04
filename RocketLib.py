@@ -10,13 +10,14 @@ from typing import Tuple, Callable, Dict, Optional
 np.set_printoptions(precision=3)
 
 
-def dragon_state_function(t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
+def dragon_state_function(t: float, x: np.ndarray, u: np.ndarray, gravity_as_input: bool = True) -> np.ndarray:
     '''
     t: required variable for solve_ivp but not used in equations
     u: [thrust left, thrust right, gravity]
     '''
     t_fwd = u[0] + u[1]
     t_twist = u[1] - u[0]
+    g = u[2] if gravity_as_input else G
     sin = np.sin(x[2])
     cos = np.cos(x[2])
 
@@ -26,7 +27,8 @@ def dragon_state_function(t: float, x: np.ndarray, u: np.ndarray) -> np.ndarray:
     dx = np.zeros_like(x)
     dx[:3] = x[3:]
     dx[3] = -t_fwd * sin / DRAGON_MASS
-    dx[4] = -u[2] + t_fwd * cos / DRAGON_MASS
+    dx[4] = -g + t_fwd * cos / DRAGON_MASS
+    # dx[4] = -u[2] + t_fwd * cos / DRAGON_MASS
     dx[5] = DRAGON_THRUST_ARM / DRAGON_I * t_twist
     return dx
 
@@ -49,7 +51,7 @@ def set_dragon_motion_equations(model: Model) -> None:
     return motion_equations
 
 
-def get_linearized_state(x: np.ndarray, u: np.ndarray, sample_time: float, epsilon: float, state_function: Callable) -> Tuple[np.ndarray, np.ndarray]:
+def get_linearized_state(x: np.ndarray, u: np.ndarray, sample_time: float, epsilon: float, state_function: Callable, gravity_as_input: bool = True) -> Tuple[np.ndarray, np.ndarray]:
     x = np.array(x).ravel()
     u = np.array(u).ravel()
 
@@ -67,21 +69,21 @@ def get_linearized_state(x: np.ndarray, u: np.ndarray, sample_time: float, epsil
         states_plus[:, i] = solve_ivp(state_function,
                                       t_span=[0, sample_time],
                                       y0=x_plus[:, i],
-                                      args=(u,)).y[:, -1]
+                                      args=(u, gravity_as_input)).y[:, -1]
         states_minus[:, i] = solve_ivp(state_function,
                                        t_span=[0, sample_time],
                                        y0=x_minus[:, i],
-                                       args=(u,)).y[:, -1]
+                                       args=(u, gravity_as_input)).y[:, -1]
     for i in range(nu):
 
         inputs_plus[:, i] = solve_ivp(state_function,
                                       t_span=[0, sample_time],
                                       y0=x,
-                                      args=(u_plus[:, i],)).y[:, -1]
+                                      args=(u_plus[:, i], gravity_as_input)).y[:, -1]
         inputs_minus[:, i] = solve_ivp(state_function,
                                        t_span=[0, sample_time],
                                        y0=x,
-                                       args=(u_minus[:, i],)).y[:, -1]
+                                       args=(u_minus[:, i], gravity_as_input)).y[:, -1]
     A = (states_plus - states_minus) / (2 * epsilon)
     B = (inputs_plus - inputs_minus) / (2 * epsilon)
     return A, B
@@ -96,7 +98,7 @@ def interpolate_data(data: np.array, n: int) -> np.array:
     return more_data
 
 
-def plot(states: np.ndarray, inputs: np.ndarray, time: np.ndarray, styles: Dict = {}, ax: Optional[plt.Axes] = None, label=''):
+def plot(states: np.ndarray, inputs: np.ndarray, time: np.ndarray, styles: Dict = {}, ax: Optional[plt.Axes] = None, label='', end_marker=False):
     linestyle = styles.setdefault('linestyle', '-')
     c1 = styles.setdefault('c1', 'b')
     c2 = styles.setdefault('c2', 'b')
@@ -113,6 +115,11 @@ def plot(states: np.ndarray, inputs: np.ndarray, time: np.ndarray, styles: Dict 
                linestyle=linestyle, label=label)
     ax[1].plot(time, inputs[:, 0], color=c2, linestyle=linestyle)
     ax[2].plot(time, inputs[:, 1], color=c3, linestyle=linestyle)
+    if end_marker and time.shape[0] > 0:
+        ax[0].plot(time[-1], np.degrees(states[-1, 2]), color=c1,
+                   marker='o')
+        ax[1].plot(time[-1], inputs[-1, 0], color=c2, marker='o')
+        ax[2].plot(time[-1], inputs[-1, 1], color=c3, marker='o')
 
     ax[0].set_ylabel('Angle [deg]')
     ax[1].set_ylabel('Thrust 1 [N]')
@@ -125,7 +132,7 @@ def plot(states: np.ndarray, inputs: np.ndarray, time: np.ndarray, styles: Dict 
     return plt.gcf(), ax
 
 
-def animate(states: np.ndarray, inputs: np.ndarray, optimal_states: Optional[np.ndarray] = None, save_frames: bool = False):
+def animate(id: int, states: np.ndarray, inputs: np.ndarray, optimal_states: Optional[np.ndarray] = None, save_frames: bool = False):
     black = (0, 0, 0)
     white = (255, 255, 255)
     red = (255, 0, 0)
@@ -168,7 +175,7 @@ def animate(states: np.ndarray, inputs: np.ndarray, optimal_states: Optional[np.
         (ANIMATION_SIZE[0] - (state_max_x - state_min_x)) / 2
     states[:, :2] = transform(states[:, :2], x_shift)
 
-    pad_width, pad_height = 10 * state_scale, 15
+    pad_width, pad_height = 10 * state_scale, 25
     pad_corner = np.array([[-pad_width/2, pad_height]])
     pad_corner = transform(pad_corner, x_shift)
     states[:, 1] -= pad_height
@@ -179,7 +186,6 @@ def animate(states: np.ndarray, inputs: np.ndarray, optimal_states: Optional[np.
         optimal_states[:, 1] -= pad_height
 
     screen = pg.display.set_mode(ANIMATION_SIZE)
-    screen.fill(white)
     timer = pg.time.Clock()
 
     dragon = get_sprite('images/dragon.png', dragon_size)
@@ -202,9 +208,18 @@ def animate(states: np.ndarray, inputs: np.ndarray, optimal_states: Optional[np.
         return flame1_corner, flame2_corner
 
     def display_loop(i):
+
         screen.fill(white)
         screen.blit(background.image, background.image.get_rect())
         if i > 1:
+            plots = pg.sprite.Sprite()
+            plots.image = pg.image.load(
+                'plot_frames/%u/tracker_vs_optimal_%04u.png' % (id, i-1))
+            plots.rect = plots.image.get_rect()
+            plots.rect.left = 20
+            plots.rect.top = 20
+            screen.blit(plots.image, plots.rect)
+
             pg.draw.lines(screen, green, False, states[:i, :2])
             if optimal_states is not None:
                 pg.draw.lines(screen, blue, False, optimal_states[:i, :2])
@@ -220,11 +235,12 @@ def animate(states: np.ndarray, inputs: np.ndarray, optimal_states: Optional[np.
                 flame1.image, flame1.image.get_rect(topleft=flame1_corner))
             dragon.image.blit(
                 flame2.image, flame2.image.get_rect(topleft=flame2_corner))
-            optimal_dragon.image = pg.transform.rotate(
-                optimal_dragon.orig_image, np.degrees(optimal_states[i, 2]))
-            optimal_dragon.rect = optimal_dragon.image.get_rect()
-            optimal_dragon.rect.center = optimal_states[i, :2]
-            screen.blit(optimal_dragon.image, optimal_dragon.rect)
+            if optimal_states is not None:
+                optimal_dragon.image = pg.transform.rotate(
+                    optimal_dragon.orig_image, np.degrees(optimal_states[i, 2]))
+                optimal_dragon.rect = optimal_dragon.image.get_rect()
+                optimal_dragon.rect.center = optimal_states[i, :2]
+                screen.blit(optimal_dragon.image, optimal_dragon.rect)
         else:
             angle = np.degrees(states[-1, 2])
             offset = states[-1, :2]
@@ -243,7 +259,7 @@ def animate(states: np.ndarray, inputs: np.ndarray, optimal_states: Optional[np.
         pg.draw.rect(
             screen,
             water_color,
-            pg.Rect(0, ANIMATION_SIZE[1] - 10, ANIMATION_SIZE[0], 10)
+            pg.Rect(0, ANIMATION_SIZE[1] - 20, ANIMATION_SIZE[0], 20)
         )
         pg.draw.rect(
             screen,
@@ -253,7 +269,7 @@ def animate(states: np.ndarray, inputs: np.ndarray, optimal_states: Optional[np.
             border_top_right_radius=r
         )
         if save_frames:
-            pg.image.save(screen, 'animation_frames/%04u.png' % i)
+            pg.image.save(screen, 'animation_frames/%u/%04u.png' % (id, i))
     count = -1
     while True:
         count += 1

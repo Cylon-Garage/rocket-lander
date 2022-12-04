@@ -91,9 +91,9 @@ def get_simulator(model: Model) -> Tuple[StateFeedback, Simulator]:
     return simulator, estimator
 
 
-def get_optimal_path(initial_state: List, rerun=False) -> Tuple[np.ndarray, np.ndarray]:
-    state_fname = 'saved_states/optimal_state.npy'
-    input_fname = 'saved_states/optimal_input.npy'
+def get_optimal_path(initial_state: List, id: int, rerun=False) -> Tuple[np.ndarray, np.ndarray]:
+    state_fname = 'saved_states/optimal_state%u.npy' % id
+    input_fname = 'saved_states/optimal_input%u.npy' % id
 
     if not rerun:
         states = np.load(state_fname)
@@ -140,9 +140,12 @@ def get_optimal_path(initial_state: List, rerun=False) -> Tuple[np.ndarray, np.n
     return states, inputs
 
 
+id = 2
+x0 = get_x0(id)
 rerun = False
-# rerun = True
-states, inputs = get_optimal_path(X0, rerun)
+rerun = True
+
+states, inputs = get_optimal_path(x0, id, rerun)
 time = np.arange(states.shape[0]) * TIMESTEP
 fig, ax = rl.plot(states, inputs, time)
 plt.show()
