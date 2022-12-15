@@ -1,5 +1,11 @@
 # Rocket Landing Trajectory Tracking with Linear MPC
 
+## Main Tracking Script
+linear MPC tracking contained in **tracker.py**
+
+## Optimal Trajectory Generation
+NMPC optimal trajectory generation contained in  **planner.py**
+
 ## Tracking Results
 ### Track 1
 $$\underline{x}_0 = \begin{bmatrix} 200 & 100 & -45° & -7.1 & -7.1 & 0\end{bmatrix}^T$$
