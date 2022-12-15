@@ -4,4 +4,7 @@ jupyter==1.0.0
 matplotlib==3.6.2
 notebook==6.5.2
 numpy==1.23.5
-opengen==0.7.0
+do-mpc==4.4.0
+scipy==1.9.3
+casadi==3.5.6rc2
+pygame==2.1.2
